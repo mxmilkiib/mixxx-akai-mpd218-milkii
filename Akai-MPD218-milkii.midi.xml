@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='utf-8'?>
+<MixxxControllerPreset mixxxVersion="" schemaVersion="1">
+    <info>
+        <n>Akai-MPD218-milkii</n>
+    </info>
+    <controller id="MPD218 Port A">
+        <scriptfiles>
+            <file filename="Akai-MPD218-milkii-scripts.js" functionprefix="MPD218"/>
+        </scriptfiles>
+        <controls/>
+        <outputs/>
+    </controller>
+</MixxxControllerPreset> 
