@@ -13,14 +13,18 @@
 var MPD218 = {};
 
 // Announce script loading
-console.log("🎛️  Loading Akai MPD218 Controller Script (milkii version)");
+console.log("🎛️  LOADING AKAI MPD218 CONTROLLER SCRIPT (milkii refactored version)");
+
+// Add immediate verification that script file is being read
+console.log("✅ MPD218 SCRIPT FILE LOADED - If you see this, the .js file is being read!");
+console.log("📅 Script loaded at: " + new Date().toLocaleString());
 
 /*///////////////////////////////////
 //      USER VARIABLES BEGIN       //
 ///////////////////////////////////*/
 
-// Enable debug logging
-MPD218.debugEnabled = true;  // Set to true for debugging
+// Enable debug logging (using default values since settings aren't configured yet)
+MPD218.debugEnabled = true;  // Default to true for now
 
 // Waveform zoom sensitivity for relative controls
 // Lower values = finer control, higher values = coarser control
@@ -70,7 +74,11 @@ MPD218.nrpnState = {
         3: { currentParameter: null, msb: 0, lsb: 0 }, // Deck 3 beatgrid
         4: { currentParameter: null, msb: 0, lsb: 0 }, // Deck 4 beatgrid
         5: { currentParameter: null, msb: 0, lsb: 0 }, // Quick zoom
-        6: { currentParameter: null, msb: 0, lsb: 0 }  // General zoom
+        6: { currentParameter: null, msb: 0, lsb: 0 }, // General zoom
+        9: { currentParameter: null, msb: 0, lsb: 0 }, // Deck 1 jogwheel
+        11: { currentParameter: null, msb: 0, lsb: 0 }, // Deck 2 jogwheel
+        12: { currentParameter: null, msb: 0, lsb: 0 }, // Deck 3 jogwheel
+        13: { currentParameter: null, msb: 0, lsb: 0 }  // Deck 4 jogwheel
     }
 };
 
@@ -80,8 +88,12 @@ MPD218.nrpnChannelMappings = {
     2: { deck: "[Channel2]", control: "beats_translate_move", speed: 1.0 },      // Second knob
     3: { deck: "[Channel3]", control: "beats_translate_move", speed: 1.0 },      // Third knob  
     4: { deck: "[Channel4]", control: "beats_translate_move", speed: 1.0 },      // Fourth knob
-    5: { deck: "[Channel1]", control: "waveform_zoom_nrpn", speed: 12.0 },       // Fast zoom
-    6: { deck: "[Channel1]", control: "waveform_zoom_nrpn", speed: 1.0 }        // Fine zoom
+    5: { deck: "[Channel1]", control: "waveform_zoom_nrpn", speed: 12.0 },       // Fast zoom (increased from 4.0)
+    6: { deck: "[Channel1]", control: "waveform_zoom_nrpn", speed: 1.0 },        // Fine zoom
+           9: { deck: "[Channel1]", control: "jogwheel_nrpn", speed: 3.0 },             // Jogwheel for Channel 1
+       11: { deck: "[Channel2]", control: "jogwheel_nrpn", speed: 3.0 },            // Jogwheel for Channel 2
+       12: { deck: "[Channel3]", control: "jogwheel_nrpn", speed: 3.0 },            // Jogwheel for Channel 3
+       13: { deck: "[Channel4]", control: "jogwheel_nrpn", speed: 3.0 }             // Jogwheel for Channel 4
 };
 
 // Pad mappings for different banks
@@ -156,7 +168,7 @@ MPD218.transportMappings = {
     0x77: { type: "shift" }
 };
 
-// BPM Lock button mappings (channel 10)
+// BPM Lock button mappings (channel 9)
 // Bottom to top physical order: Deck 4, 2, 1, 3
 MPD218.bpmLockMappings = {
     0x24: { deck: "[Channel4]" },  // Bottom button = Deck 4
@@ -164,6 +176,45 @@ MPD218.bpmLockMappings = {
     0x2C: { deck: "[Channel1]" },  // Third button = Deck 1
     0x30: { deck: "[Channel3]" }   // Top button = Deck 3
 };
+
+// Timer management for BPM lock LED refresh
+MPD218.bpmLockTimers = {};
+
+// Key Lock button mappings (channel 9)
+// Second column: Deck 4, 2, 1, 3 (bottom to top)
+MPD218.keyLockMappings = {
+    0x25: { deck: "[Channel4]" },  // Bottom button = Deck 4
+    0x29: { deck: "[Channel2]" },  // Second button = Deck 2
+    0x2D: { deck: "[Channel1]" },  // Third button = Deck 1
+    0x31: { deck: "[Channel3]" }   // Top button = Deck 3
+};
+
+// Timer management for Key lock LED refresh
+MPD218.keyLockTimers = {};
+
+// Slip Mode button mappings (channel 9)
+// Third column: Deck 4, 2, 1, 3 (bottom to top)
+MPD218.slipModeMappings = {
+    0x26: { deck: "[Channel4]" },  // Bottom button = Deck 4
+    0x2A: { deck: "[Channel2]" },  // Second button = Deck 2
+    0x2E: { deck: "[Channel1]" },  // Third button = Deck 1
+    0x32: { deck: "[Channel3]" }   // Top button = Deck 3
+};
+
+// Timer management for Slip mode LED refresh
+MPD218.slipModeTimers = {};
+
+// Quantization button mappings (channel 9)
+// Fourth column: Deck 4, 2, 1, 3 (bottom to top)
+MPD218.quantizationMappings = {
+    0x27: { deck: "[Channel4]" },  // Bottom button = Deck 4
+    0x2B: { deck: "[Channel2]" },  // Second button = Deck 2
+    0x2F: { deck: "[Channel1]" },  // Third button = Deck 1
+    0x33: { deck: "[Channel3]" }   // Top button = Deck 3
+};
+
+// Timer management for Quantization LED refresh
+MPD218.quantizationTimers = {};
 
 /*///////////////////////////////////
 //        UTILITY FUNCTIONS        //
@@ -193,9 +244,24 @@ MPD218.turnOffAllLEDs = function() {
         MPD218.updateLED(note, 0);
     }
     
-    // Turn off BPM lock button LEDs (channel 10)
+    // Turn off BPM lock button LEDs (channel 9)
     for (const buttonNote of Object.keys(MPD218.bpmLockMappings)) {
         MPD218.forceBPMLockLEDOff(buttonNote);
+    }
+    
+    // Turn off Key lock button LEDs (channel 9)
+    for (const buttonNote of Object.keys(MPD218.keyLockMappings)) {
+        MPD218.forceKeyLockLEDOff(buttonNote);
+    }
+    
+    // Turn off Slip mode button LEDs (channel 9)
+    for (const buttonNote of Object.keys(MPD218.slipModeMappings)) {
+        MPD218.forceSlipModeLEDOff(buttonNote);
+    }
+    
+    // Turn off Quantization button LEDs (channel 9)
+    for (const buttonNote of Object.keys(MPD218.quantizationMappings)) {
+        MPD218.forceQuantizationLEDOff(buttonNote);
     }
 };
 
@@ -204,7 +270,31 @@ MPD218.forceBPMLockLEDOff = function(buttonNote) {
     console.log(`🔦 Forcing BPM lock LED OFF for button 0x${note.toString(16)}`);
     
     // Try only the most basic method for now
-    midi.sendShortMsg(0x89, note, 0);  // Note Off with velocity 0
+    midi.sendShortMsg(0x88, note, 0);  // Note Off with velocity 0
+};
+
+MPD218.forceKeyLockLEDOff = function(buttonNote) {
+    const note = parseInt(buttonNote);
+    console.log(`🎵 Forcing Key lock LED OFF for button 0x${note.toString(16)}`);
+    
+    // Try only the most basic method for now
+    midi.sendShortMsg(0x88, note, 0);  // Note Off with velocity 0
+};
+
+MPD218.forceSlipModeLEDOff = function(buttonNote) {
+    const note = parseInt(buttonNote);
+    console.log(`🎛️ Forcing Slip mode LED OFF for button 0x${note.toString(16)}`);
+    
+    // Try only the most basic method for now
+    midi.sendShortMsg(0x88, note, 0);  // Note Off with velocity 0
+};
+
+MPD218.forceQuantizationLEDOff = function(buttonNote) {
+    const note = parseInt(buttonNote);
+    console.log(`🎯 Forcing Quantization LED OFF for button 0x${note.toString(16)}`);
+    
+    // Try only the most basic method for now
+    midi.sendShortMsg(0x88, note, 0);  // Note Off with velocity 0
 };
 
 /*///////////////////////////////////
@@ -312,12 +402,12 @@ MPD218.handleBPMLock = function(channel, control, value, status, group) {
     console.log(`🔥 BPM Lock MIDI: status=0x${status.toString(16)}, control=0x${control.toString(16)}, value=${value}`);
     
     // Handle different MIDI message types:
-    // 0x99 = Note On channel 10 with velocity > 0 (button press)
-    // 0xD9 = Note On channel 10 with velocity 0 (button held) - IGNORE
-    // 0x89 = Note Off channel 10 (button release) - IGNORE
+    // 0x98 = Note On channel 9 with velocity > 0 (button press)
+    // 0xD8 = Note On channel 9 with velocity 0 (button held) - IGNORE
+    // 0x88 = Note Off channel 9 (button release) - IGNORE
     
     // Only respond to actual button presses (Note On with velocity > 0)
-    if (status === 0x99 && value > 0) {
+    if (status === 0x98 && value > 0) {
         console.log(`🔥 Valid button press detected with velocity ${value}`);
     } else {
         console.log(`🔥 Ignoring MIDI message - not a valid button press`);
@@ -346,31 +436,53 @@ MPD218.handleBPMLock = function(channel, control, value, status, group) {
     if (newLock) {
         console.log(`🔥 Sending multiple Note On commands to force LED ON`);
         // Send multiple Note On commands with different velocities
-        midi.sendShortMsg(0x99, control, 127); // Full velocity
-        midi.sendShortMsg(0x99, control, 100); // High velocity
-        midi.sendShortMsg(0x99, control, 127); // Full velocity again
+        midi.sendShortMsg(0x98, control, 127); // Full velocity
+        midi.sendShortMsg(0x98, control, 100); // High velocity
+        midi.sendShortMsg(0x98, control, 127); // Full velocity again
         
-        // Also try Control Change on channel 10
-        midi.sendShortMsg(0xB9, control, 127); // CC on channel 10
+        // Also try Control Change on channel 9
+        midi.sendShortMsg(0xB8, control, 127); // CC on channel 9
     } else {
         console.log(`🔥 Sending Note Off for LED OFF`);
-        midi.sendShortMsg(0x89, control, 0);
+        midi.sendShortMsg(0x88, control, 0);
     }
     
     // Set up continuous LED refresh to override button held messages
     if (newLock) {
-        console.log(`🔥 Setting up continuous LED refresh timer`);
+        console.log(`🔥 Setting up continuous LED refresh timer for ${mapping.deck}`);
+        // Stop any existing timer for this deck
+        if (MPD218.bpmLockTimers[mapping.deck]) {
+            console.log(`🔥 Stopping existing timer for ${mapping.deck}`);
+            engine.stopTimer(MPD218.bpmLockTimers[mapping.deck]);
+        }
+        
         // Create a timer that keeps sending LED ON commands
-        engine.beginTimer(50, function() {
+        const timerId = engine.beginTimer(200, function() {
             const currentState = engine.getValue(mapping.deck, "bpmlock");
             if (currentState) {
-                console.log(`🔥 Continuous LED refresh - sending Note On`);
-                midi.sendShortMsg(0x99, control, 127);
+                // Only log occasionally to reduce spam
+                if (Math.random() < 0.1) { // 10% chance to log
+                    console.log(`🔥 Continuous LED refresh - sending Note On for ${mapping.deck}`);
+                }
+                midi.sendShortMsg(0x98, control, 127);
             } else {
-                console.log(`🔥 BPM lock turned off - stopping LED refresh`);
+                console.log(`🔥 BPM lock turned off - stopping LED refresh for ${mapping.deck}`);
+                // Clean up timer reference
+                delete MPD218.bpmLockTimers[mapping.deck];
                 return false; // Stop the timer
             }
         }, false); // false = repeating timer
+        
+        // Store timer reference
+        MPD218.bpmLockTimers[mapping.deck] = timerId;
+        console.log(`🔥 Timer ${timerId} created for ${mapping.deck}`);
+    } else {
+        // Stop timer when BPM lock is turned OFF
+        if (MPD218.bpmLockTimers[mapping.deck]) {
+            console.log(`🔥 Stopping LED refresh timer for ${mapping.deck}`);
+            engine.stopTimer(MPD218.bpmLockTimers[mapping.deck]);
+            delete MPD218.bpmLockTimers[mapping.deck];
+        }
     }
     
     // Verify the change
@@ -381,11 +493,317 @@ MPD218.handleBPMLock = function(channel, control, value, status, group) {
         // Double-check LED again with full velocity
         if (verifyLock) {
             console.log(`🔥 Re-sending Note On with velocity 127 to ensure LED stays lit`);
-            midi.sendShortMsg(0x99, control, 127);
+            midi.sendShortMsg(0x98, control, 127);
         }
     }, true); // true = one-shot timer
     
     MPD218.log(`BPM Lock toggled for ${mapping.deck}: ${newLock ? "ON" : "OFF"}`);
+};
+
+MPD218.handleKeyLock = function(channel, control, value, status, group) {
+    console.log(`🎵 Key Lock MIDI: status=0x${status.toString(16)}, control=0x${control.toString(16)}, value=${value}`);
+    
+    // Handle different MIDI message types:
+    // 0x98 = Note On channel 9 with velocity > 0 (button press)
+    // 0xD8 = Note On channel 9 with velocity 0 (button held) - IGNORE
+    // 0x88 = Note Off channel 9 (button release) - IGNORE
+    
+    // Only respond to actual button presses (Note On with velocity > 0)
+    if (status === 0x98 && value > 0) {
+        console.log(`🎵 Valid button press detected with velocity ${value}`);
+    } else {
+        console.log(`🎵 Ignoring MIDI message - not a valid button press`);
+        return;
+    }
+    
+    const mapping = MPD218.keyLockMappings[control];
+    if (!mapping) {
+        MPD218.log(`No Key lock mapping for button 0x${control.toString(16)}`);
+        return;
+    }
+    
+    console.log(`🎵 Mapped to deck: ${mapping.deck}`);
+    
+    // Get current state
+    const currentLock = engine.getValue(mapping.deck, "keylock");
+    console.log(`🎵 Current Key lock state: ${currentLock}`);
+    
+    // Toggle Key lock for the mapped deck
+    const newLock = !currentLock;
+    console.log(`🎵 Setting Key lock to: ${newLock}`);
+    engine.setValue(mapping.deck, "keylock", newLock);
+    
+    // AGGRESSIVE LED CONTROL - send multiple commands to override button held messages
+    console.log(`🎵 Aggressively updating LED for button 0x${control.toString(16)}`);
+    if (newLock) {
+        console.log(`🎵 Sending multiple Note On commands to force LED ON`);
+        // Send multiple Note On commands with different velocities
+        midi.sendShortMsg(0x98, control, 127); // Full velocity
+        midi.sendShortMsg(0x98, control, 100); // High velocity
+        midi.sendShortMsg(0x98, control, 127); // Full velocity again
+        
+        // Also try Control Change on channel 9
+        midi.sendShortMsg(0xB8, control, 127); // CC on channel 9
+    } else {
+        console.log(`🎵 Sending Note Off for LED OFF`);
+        midi.sendShortMsg(0x88, control, 0);
+    }
+    
+    // Set up continuous LED refresh to override button held messages
+    if (newLock) {
+        console.log(`🎵 Setting up continuous LED refresh timer for ${mapping.deck}`);
+        // Stop any existing timer for this deck
+        if (MPD218.keyLockTimers[mapping.deck]) {
+            console.log(`🎵 Stopping existing timer for ${mapping.deck}`);
+            engine.stopTimer(MPD218.keyLockTimers[mapping.deck]);
+        }
+        
+        // Create a timer that keeps sending LED ON commands
+        const timerId = engine.beginTimer(200, function() {
+            const currentState = engine.getValue(mapping.deck, "keylock");
+            if (currentState) {
+                // Only log occasionally to reduce spam
+                if (Math.random() < 0.1) { // 10% chance to log
+                    console.log(`🎵 Continuous LED refresh - sending Note On for ${mapping.deck}`);
+                }
+                midi.sendShortMsg(0x98, control, 127);
+            } else {
+                console.log(`🎵 Key lock turned off - stopping LED refresh for ${mapping.deck}`);
+                // Clean up timer reference
+                delete MPD218.keyLockTimers[mapping.deck];
+                return false; // Stop the timer
+            }
+        }, false); // false = repeating timer
+        
+        // Store timer reference
+        MPD218.keyLockTimers[mapping.deck] = timerId;
+        console.log(`🎵 Timer ${timerId} created for ${mapping.deck}`);
+    } else {
+        // Stop timer when Key lock is turned OFF
+        if (MPD218.keyLockTimers[mapping.deck]) {
+            console.log(`🎵 Stopping LED refresh timer for ${mapping.deck}`);
+            engine.stopTimer(MPD218.keyLockTimers[mapping.deck]);
+            delete MPD218.keyLockTimers[mapping.deck];
+        }
+    }
+    
+    // Verify the change
+    engine.beginTimer(100, function() {
+        const verifyLock = engine.getValue(mapping.deck, "keylock");
+        console.log(`🎵 Verified Key lock state after toggle: ${verifyLock}`);
+        
+        // Double-check LED again with full velocity
+        if (verifyLock) {
+            console.log(`🎵 Re-sending Note On with velocity 127 to ensure LED stays lit`);
+            midi.sendShortMsg(0x98, control, 127);
+        }
+    }, true); // true = one-shot timer
+    
+    MPD218.log(`Key Lock toggled for ${mapping.deck}: ${newLock ? "ON" : "OFF"}`);
+};
+
+MPD218.handleSlipMode = function(channel, control, value, status, group) {
+    console.log(`🎛️ Slip Mode MIDI: status=0x${status.toString(16)}, control=0x${control.toString(16)}, value=${value}`);
+    
+    // Handle different MIDI message types:
+    // 0x98 = Note On channel 9 with velocity > 0 (button press)
+    // 0xD8 = Note On channel 9 with velocity 0 (button held) - IGNORE
+    // 0x88 = Note Off channel 9 (button release) - IGNORE
+    
+    // Only respond to actual button presses (Note On with velocity > 0)
+    if (status === 0x98 && value > 0) {
+        console.log(`🎛️ Valid button press detected with velocity ${value}`);
+    } else {
+        console.log(`🎛️ Ignoring MIDI message - not a valid button press`);
+        return;
+    }
+    
+    const mapping = MPD218.slipModeMappings[control];
+    if (!mapping) {
+        MPD218.log(`No Slip mode mapping for button 0x${control.toString(16)}`);
+        return;
+    }
+    
+    console.log(`🎛️ Mapped to deck: ${mapping.deck}`);
+    
+    // Get current state
+    const currentMode = engine.getValue(mapping.deck, "slip_enabled");
+    console.log(`🎛️ Current Slip mode state: ${currentMode}`);
+    
+    // Toggle Slip mode for the mapped deck
+    const newMode = !currentMode;
+    console.log(`🎛️ Setting Slip mode to: ${newMode}`);
+    engine.setValue(mapping.deck, "slip_enabled", newMode);
+    
+    // AGGRESSIVE LED CONTROL - send multiple commands to override button held messages
+    console.log(`🎛️ Aggressively updating LED for button 0x${control.toString(16)}`);
+    if (newMode) {
+        console.log(`🎛️ Sending multiple Note On commands to force LED ON`);
+        // Send multiple Note On commands with different velocities
+        midi.sendShortMsg(0x98, control, 127); // Full velocity
+        midi.sendShortMsg(0x98, control, 100); // High velocity
+        midi.sendShortMsg(0x98, control, 127); // Full velocity again
+        
+        // Also try Control Change on channel 9
+        midi.sendShortMsg(0xB8, control, 127); // CC on channel 9
+    } else {
+        console.log(`🎛️ Sending Note Off for LED OFF`);
+        midi.sendShortMsg(0x88, control, 0);
+    }
+    
+    // Set up continuous LED refresh to override button held messages
+    if (newMode) {
+        console.log(`🎛️ Setting up continuous LED refresh timer for ${mapping.deck}`);
+        // Stop any existing timer for this deck
+        if (MPD218.slipModeTimers[mapping.deck]) {
+            console.log(`🎛️ Stopping existing timer for ${mapping.deck}`);
+            engine.stopTimer(MPD218.slipModeTimers[mapping.deck]);
+        }
+        
+        // Create a timer that keeps sending LED ON commands
+        const timerId = engine.beginTimer(200, function() {
+            const currentState = engine.getValue(mapping.deck, "slip_enabled");
+            if (currentState) {
+                // Only log occasionally to reduce spam
+                if (Math.random() < 0.1) { // 10% chance to log
+                    console.log(`🎛️ Continuous LED refresh - sending Note On for ${mapping.deck}`);
+                }
+                midi.sendShortMsg(0x98, control, 127);
+            } else {
+                console.log(`🎛️ Slip mode turned off - stopping LED refresh for ${mapping.deck}`);
+                // Clean up timer reference
+                delete MPD218.slipModeTimers[mapping.deck];
+                return false; // Stop the timer
+            }
+        }, false); // false = repeating timer
+        
+        // Store timer reference
+        MPD218.slipModeTimers[mapping.deck] = timerId;
+        console.log(`🎛️ Timer ${timerId} created for ${mapping.deck}`);
+    } else {
+        // Stop timer when Slip mode is turned OFF
+        if (MPD218.slipModeTimers[mapping.deck]) {
+            console.log(`🎛️ Stopping LED refresh timer for ${mapping.deck}`);
+            engine.stopTimer(MPD218.slipModeTimers[mapping.deck]);
+            delete MPD218.slipModeTimers[mapping.deck];
+        }
+    }
+    
+    // Verify the change
+    engine.beginTimer(100, function() {
+        const verifyMode = engine.getValue(mapping.deck, "slip_enabled");
+        console.log(`🎛️ Verified Slip mode state after toggle: ${verifyMode}`);
+        
+        // Double-check LED again with full velocity
+        if (verifyMode) {
+            console.log(`🎛️ Re-sending Note On with velocity 127 to ensure LED stays lit`);
+            midi.sendShortMsg(0x98, control, 127);
+        }
+    }, true); // true = one-shot timer
+    
+    MPD218.log(`Slip Mode toggled for ${mapping.deck}: ${newMode ? "ON" : "OFF"}`);
+};
+
+MPD218.handleQuantization = function(channel, control, value, status, group) {
+    console.log(`🎯 Quantization MIDI: status=0x${status.toString(16)}, control=0x${control.toString(16)}, value=${value}`);
+    
+    // Handle different MIDI message types:
+    // 0x98 = Note On channel 9 with velocity > 0 (button press)
+    // 0xD8 = Note On channel 9 with velocity 0 (button held) - IGNORE
+    // 0x88 = Note Off channel 9 (button release) - IGNORE
+    
+    // Only respond to actual button presses (Note On with velocity > 0)
+    if (status === 0x98 && value > 0) {
+        console.log(`🎯 Valid button press detected with velocity ${value}`);
+    } else {
+        console.log(`🎯 Ignoring MIDI message - not a valid button press`);
+        return;
+    }
+    
+    const mapping = MPD218.quantizationMappings[control];
+    if (!mapping) {
+        MPD218.log(`No Quantization mapping for button 0x${control.toString(16)}`);
+        return;
+    }
+    
+    console.log(`🎯 Mapped to deck: ${mapping.deck}`);
+    
+    // Get current state
+    const currentQuant = engine.getValue(mapping.deck, "quantize");
+    console.log(`🎯 Current Quantization state: ${currentQuant}`);
+    
+    // Toggle Quantization for the mapped deck
+    const newQuant = !currentQuant;
+    console.log(`🎯 Setting Quantization to: ${newQuant}`);
+    engine.setValue(mapping.deck, "quantize", newQuant);
+    
+    // AGGRESSIVE LED CONTROL - send multiple commands to override button held messages
+    console.log(`🎯 Aggressively updating LED for button 0x${control.toString(16)}`);
+    if (newQuant) {
+        console.log(`🎯 Sending multiple Note On commands to force LED ON`);
+        // Send multiple Note On commands with different velocities
+        midi.sendShortMsg(0x98, control, 127); // Full velocity
+        midi.sendShortMsg(0x98, control, 100); // High velocity
+        midi.sendShortMsg(0x98, control, 127); // Full velocity again
+        
+        // Also try Control Change on channel 9
+        midi.sendShortMsg(0xB8, control, 127); // CC on channel 9
+    } else {
+        console.log(`🎯 Sending Note Off for LED OFF`);
+        midi.sendShortMsg(0x88, control, 0);
+    }
+    
+    // Set up continuous LED refresh to override button held messages
+    if (newQuant) {
+        console.log(`🎯 Setting up continuous LED refresh timer for ${mapping.deck}`);
+        // Stop any existing timer for this deck
+        if (MPD218.quantizationTimers[mapping.deck]) {
+            console.log(`🎯 Stopping existing timer for ${mapping.deck}`);
+            engine.stopTimer(MPD218.quantizationTimers[mapping.deck]);
+        }
+        
+        // Create a timer that keeps sending LED ON commands
+        const timerId = engine.beginTimer(200, function() {
+            const currentState = engine.getValue(mapping.deck, "quantize");
+            if (currentState) {
+                // Only log occasionally to reduce spam
+                if (Math.random() < 0.1) { // 10% chance to log
+                    console.log(`🎯 Continuous LED refresh - sending Note On for ${mapping.deck}`);
+                }
+                midi.sendShortMsg(0x98, control, 127);
+            } else {
+                console.log(`🎯 Quantization turned off - stopping LED refresh for ${mapping.deck}`);
+                // Clean up timer reference
+                delete MPD218.quantizationTimers[mapping.deck];
+                return false; // Stop the timer
+            }
+        }, false); // false = repeating timer
+        
+        // Store timer reference
+        MPD218.quantizationTimers[mapping.deck] = timerId;
+        console.log(`🎯 Timer ${timerId} created for ${mapping.deck}`);
+    } else {
+        // Stop timer when Quantization is turned OFF
+        if (MPD218.quantizationTimers[mapping.deck]) {
+            console.log(`🎯 Stopping LED refresh timer for ${mapping.deck}`);
+            engine.stopTimer(MPD218.quantizationTimers[mapping.deck]);
+            delete MPD218.quantizationTimers[mapping.deck];
+        }
+    }
+    
+    // Verify the change
+    engine.beginTimer(100, function() {
+        const verifyQuant = engine.getValue(mapping.deck, "quantize");
+        console.log(`🎯 Verified Quantization state after toggle: ${verifyQuant}`);
+        
+        // Double-check LED again with full velocity
+        if (verifyQuant) {
+            console.log(`🎯 Re-sending Note On with velocity 127 to ensure LED stays lit`);
+            midi.sendShortMsg(0x98, control, 127);
+        }
+    }, true); // true = one-shot timer
+    
+    MPD218.log(`Quantization toggled for ${mapping.deck}: ${newQuant ? "ON" : "OFF"}`);
 };
 
 MPD218.handleRelativeZoom = function(value, deck, speed) {
@@ -502,12 +920,10 @@ MPD218.handleNRPNIncrement = function(channel, control, value, status, group) {
         return;
     }
     
-    // For jog wheels, we don't need to check currentParameter - just use the channel mapping
-    // The controller sends parameter 0,0 which is valid for jog wheel control
     if (channelState.currentParameter === null || channelState.currentParameter === undefined) {
         console.log(`⚠️  Ch${midiChannel} NRPN Data Increment received but no parameter selected (param: ${channelState.currentParameter})`);
         MPD218.log(`Ch${midiChannel} NRPN Data Increment received but no parameter selected (param: ${channelState.currentParameter})`);
-        // Don't return - continue processing for jog wheel control
+        return;
     }
     
     const mapping = MPD218.nrpnChannelMappings[midiChannel];
@@ -517,12 +933,15 @@ MPD218.handleNRPNIncrement = function(channel, control, value, status, group) {
         return;
     }
     
+    console.log(`✅ Processing NRPN Increment - Ch${midiChannel}, mapping: ${mapping.control}, deck: ${mapping.deck}`);
     MPD218.log(`Processing NRPN Increment - Ch${midiChannel}, mapping: ${mapping.control}, deck: ${mapping.deck}`);
     
     if (mapping.control === "waveform_zoom_nrpn") {
         MPD218.handleNRPNZoom(mapping.deck, value, mapping.speed, "increment", midiChannel);
     } else if (mapping.control === "beats_translate_move") {
         MPD218.handleNRPNBeatgrid(mapping.deck, "increment", midiChannel, value);
+    } else if (mapping.control === "jogwheel_nrpn") {
+        MPD218.handleNRPNJogwheel(mapping.deck, "increment", midiChannel, value, mapping.speed);
     }
 };
 
@@ -544,12 +963,10 @@ MPD218.handleNRPNDecrement = function(channel, control, value, status, group) {
         return;
     }
     
-    // For jog wheels, we don't need to check currentParameter - just use the channel mapping
-    // The controller sends parameter 0,0 which is valid for jog wheel control
     if (channelState.currentParameter === null || channelState.currentParameter === undefined) {
         console.log(`⚠️  Ch${midiChannel} NRPN Data Decrement received but no parameter selected (param: ${channelState.currentParameter})`);
         MPD218.log(`Ch${midiChannel} NRPN Data Decrement received but no parameter selected (param: ${channelState.currentParameter})`);
-        // Don't return - continue processing for jog wheel control
+        return;
     }
     
     const mapping = MPD218.nrpnChannelMappings[midiChannel];
@@ -559,12 +976,15 @@ MPD218.handleNRPNDecrement = function(channel, control, value, status, group) {
         return;
     }
     
+    console.log(`✅ Processing NRPN Decrement - Ch${midiChannel}, mapping: ${mapping.control}, deck: ${mapping.deck}`);
     MPD218.log(`Processing NRPN Decrement - Ch${midiChannel}, mapping: ${mapping.control}, deck: ${mapping.deck}`);
     
     if (mapping.control === "waveform_zoom_nrpn") {
         MPD218.handleNRPNZoom(mapping.deck, value, mapping.speed, "decrement", midiChannel);
     } else if (mapping.control === "beats_translate_move") {
         MPD218.handleNRPNBeatgrid(mapping.deck, "decrement", midiChannel, value);
+    } else if (mapping.control === "jogwheel_nrpn") {
+        MPD218.handleNRPNJogwheel(mapping.deck, "decrement", midiChannel, value, mapping.speed);
     }
 };
 
@@ -607,6 +1027,30 @@ MPD218.handleNRPNBeatgrid = function(deck, direction, midiChannel, value) {
     }
 };
 
+// Handle NRPN jogwheel with 14-bit precision for track scrubbing
+MPD218.handleNRPNJogwheel = function(deck, direction, midiChannel, value, speed) {
+    // Calculate relative movement based on value and speed multiplier
+    const relativeMovement = Math.round(value * speed);
+    
+    // Get current position
+    const currentPosition = engine.getValue(deck, "playposition");
+    
+    // Calculate movement step (adjust this value to control sensitivity)
+    const movementStep = relativeMovement / 6400; // Smaller divisor = faster movement
+    
+    if (direction === "increment") {
+        // Increment = scrub forward (later in track)
+        const newPosition = Math.min(1.0, currentPosition + movementStep);
+        engine.setValue(deck, "playposition", newPosition);
+        MPD218.log(`NRPN Jogwheel ${deck} scrub forward (ch: ${midiChannel}, pos: ${currentPosition.toFixed(3)} -> ${newPosition.toFixed(3)})`);
+    } else if (direction === "decrement") {
+        // Decrement = scrub backward (earlier in track)
+        const newPosition = Math.max(0.0, currentPosition - movementStep);
+        engine.setValue(deck, "playposition", newPosition);
+        MPD218.log(`NRPN Jogwheel ${deck} scrub backward (ch: ${midiChannel}, pos: ${currentPosition.toFixed(3)} -> ${newPosition.toFixed(3)})`);
+    }
+};
+
 /*///////////////////////////////////
 //         LED CALLBACKS          //
 ///////////////////////////////////*/
@@ -638,13 +1082,13 @@ MPD218.updateBPMLockLED = function(value, group, control) {
         if (mapping.deck === group) {
             console.log(`🔦 Found matching button 0x${parseInt(buttonNote).toString(16)} for ${group}`);
             
-            // Update LED on channel 10 - ALWAYS use full velocity for Note On
+            // Update LED on channel 9 - ALWAYS use full velocity for Note On
             if (value) {
-                console.log(`🔦 Sending Note On (0x99) with velocity 127 to turn LED ON`);
-                midi.sendShortMsg(0x99, parseInt(buttonNote), 127); // Always use full velocity
+                        console.log(`🔦 Sending Note On (0x98) with velocity 127 to turn LED ON`);
+        midi.sendShortMsg(0x98, parseInt(buttonNote), 127); // Always use full velocity
             } else {
-                console.log(`🔦 Sending Note Off (0x89) to turn LED OFF`);
-                midi.sendShortMsg(0x89, parseInt(buttonNote), 0);   // Note Off
+                console.log(`🔦 Sending Note Off (0x88) to turn LED OFF`);
+                midi.sendShortMsg(0x88, parseInt(buttonNote), 0);   // Note Off
             }
             MPD218.log(`BPM Lock LED update: ${group} = ${value ? "ON" : "OFF"} (button 0x${parseInt(buttonNote).toString(16)})`);
             break;
@@ -680,9 +1124,39 @@ MPD218.updateAllLEDs = function() {
     for (const [buttonNote, mapping] of Object.entries(MPD218.bpmLockMappings)) {
         const lockStatus = engine.getValue(mapping.deck, "bpmlock");
         if (lockStatus) {
-            midi.sendShortMsg(0x99, parseInt(buttonNote), 127); // Note On
+            midi.sendShortMsg(0x98, parseInt(buttonNote), 127); // Note On
         } else {
-            midi.sendShortMsg(0x89, parseInt(buttonNote), 0);   // Note Off
+            midi.sendShortMsg(0x88, parseInt(buttonNote), 0);   // Note Off
+        }
+    }
+    
+    // Update Key lock LEDs
+    for (const [buttonNote, mapping] of Object.entries(MPD218.keyLockMappings)) {
+        const lockStatus = engine.getValue(mapping.deck, "keylock");
+        if (lockStatus) {
+            midi.sendShortMsg(0x98, parseInt(buttonNote), 127); // Note On
+        } else {
+            midi.sendShortMsg(0x88, parseInt(buttonNote), 0);   // Note Off
+        }
+    }
+    
+    // Update Slip mode LEDs
+    for (const [buttonNote, mapping] of Object.entries(MPD218.slipModeMappings)) {
+        const modeStatus = engine.getValue(mapping.deck, "slip_enabled");
+        if (modeStatus) {
+            midi.sendShortMsg(0x98, parseInt(buttonNote), 127); // Note On
+        } else {
+            midi.sendShortMsg(0x88, parseInt(buttonNote), 0);   // Note Off
+        }
+    }
+    
+    // Update Quantization LEDs
+    for (const [buttonNote, mapping] of Object.entries(MPD218.quantizationMappings)) {
+        const quantStatus = engine.getValue(mapping.deck, "quantize");
+        if (quantStatus) {
+            midi.sendShortMsg(0x98, parseInt(buttonNote), 127); // Note On
+        } else {
+            midi.sendShortMsg(0x88, parseInt(buttonNote), 0);   // Note Off
         }
     }
 };
@@ -732,29 +1206,24 @@ MPD218.testNRPN = function() {
     MPD218.handleNRPNIncrement(1, 0x60, 3, 0xB0, "[Channel1]");
     MPD218.handleNRPNIncrement(1, 0x60, 3, 0xB0, "[Channel1]");
     
-    MPD218.log("NRPN test complete - check if beatgrid moved");
+    console.log("✅ NRPN test complete - check if beatgrid moved");
     return "NRPN test executed";
 };
 
-// Test jog wheel directly
-MPD218.testJogWheel = function(channel) {
-    channel = channel || 1;
-    console.log(`🧪 Testing jog wheel for channel ${channel}...`);
+// Test jogwheel functionality manually
+MPD218.testJogwheel = function(deck, direction) {
+    deck = deck || "[Channel1]";
+    direction = direction || "increment";
+    console.log(`🧪 Testing jogwheel for ${deck} - ${direction}`);
     
-    // Simulate the exact NRPN sequence your controller sends
-    const status = 0xB0 + (channel - 1); // 0xB0 for ch1, 0xB1 for ch2, etc.
+    // Simulate NRPN jogwheel movement
+    const testValue = 5; // Moderate speed
+    const testSpeed = 1.0;
     
-    console.log(`📤 Simulating jog wheel NRPN sequence for channel ${channel} (status: 0x${status.toString(16)})`);
+    MPD218.handleNRPNJogwheel(deck, direction, 9, testValue, testSpeed);
     
-    // Set parameter to 0,0 (what your controller sends)
-    MPD218.handleNRPNMSB(1, 0x63, 0, status, "[Channel1]");
-    MPD218.handleNRPNLSB(1, 0x62, 0, status, "[Channel1]");
-    
-    // Send increment (what happens when you turn the knob)
-    MPD218.handleNRPNIncrement(1, 0x60, 3, status, "[Channel1]");
-    
-    console.log("✅ Jog wheel test complete - check if beatgrid moved");
-    return `Jog wheel test executed for channel ${channel}`;
+    console.log(`✅ Jogwheel test executed for ${deck} - ${direction}`);
+    return `Jogwheel test executed for ${deck} - ${direction}`;
 };
 
 // Test BPM lock LEDs manually
@@ -767,8 +1236,8 @@ MPD218.testBPMLockLEDs = function(state) {
         
         if (state) {
             // Turn ON
-            console.log(`   -> Sending Note On (0x99) with velocity 127`);
-            midi.sendShortMsg(0x99, note, 127);
+                    console.log(`   -> Sending Note On (0x98) with velocity 127`);
+        midi.sendShortMsg(0x98, note, 127);
         } else {
             // Turn OFF - try all methods
             console.log(`   -> Trying multiple methods to turn OFF`);
@@ -843,10 +1312,28 @@ MPD218.setupMIDIHandlers = function() {
         MPD218.log(`Registered transport handler for note 0x${parseInt(note).toString(16)}`);
     });
     
-    // BPM Lock button handlers (channel 10 = 0x99 for note on)
+    // BPM Lock button handlers (channel 9 = 0x98 for note on)
     Object.keys(MPD218.bpmLockMappings).forEach(note => {
-        midi.makeInputHandler(0x99, parseInt(note), MPD218.handleBPMLock);
-        MPD218.log(`Registered BPM lock handler for note 0x${parseInt(note).toString(16)} on channel 10`);
+        midi.makeInputHandler(0x98, parseInt(note), MPD218.handleBPMLock);
+        MPD218.log(`Registered BPM lock handler for note 0x${parseInt(note).toString(16)} on channel 9`);
+    });
+    
+    // Key Lock button handlers (channel 9 = 0x98 for note on)
+    Object.keys(MPD218.keyLockMappings).forEach(note => {
+        midi.makeInputHandler(0x98, parseInt(note), MPD218.handleKeyLock);
+        MPD218.log(`Registered Key lock handler for note 0x${parseInt(note).toString(16)} on channel 9`);
+    });
+    
+    // Slip Mode button handlers (channel 9 = 0x98 for note on)
+    Object.keys(MPD218.slipModeMappings).forEach(note => {
+        midi.makeInputHandler(0x98, parseInt(note), MPD218.handleSlipMode);
+        MPD218.log(`Registered Slip mode handler for note 0x${parseInt(note).toString(16)} on channel 9`);
+    });
+    
+    // Quantization button handlers (channel 9 = 0x98 for note on)
+    Object.keys(MPD218.quantizationMappings).forEach(note => {
+        midi.makeInputHandler(0x98, parseInt(note), MPD218.handleQuantization);
+        MPD218.log(`Registered Quantization handler for note 0x${parseInt(note).toString(16)} on channel 9`);
     });
     
     // NRPN handlers for high-resolution control (if enabled)
@@ -860,48 +1347,99 @@ MPD218.setupMIDIHandlers = function() {
         midi.makeInputHandler(0xB0, 0x62, MPD218.handleNRPNLSB);    // CC 98
         midi.makeInputHandler(0xB0, 0x60, MPD218.handleNRPNIncrement); // CC 96
         midi.makeInputHandler(0xB0, 0x61, MPD218.handleNRPNDecrement); // CC 97
-        MPD218.log("Registered NRPN handlers for channel 1");
+        console.log("✅ Registered NRPN handlers for channel 1");
         
         // Channel 2 (0xB1)
         midi.makeInputHandler(0xB1, 0x63, MPD218.handleNRPNMSB);
         midi.makeInputHandler(0xB1, 0x62, MPD218.handleNRPNLSB);
         midi.makeInputHandler(0xB1, 0x60, MPD218.handleNRPNIncrement);
         midi.makeInputHandler(0xB1, 0x61, MPD218.handleNRPNDecrement);
-        MPD218.log("Registered NRPN handlers for channel 2");
+        console.log("✅ Registered NRPN handlers for channel 2");
         
         // Channel 3 (0xB2)
         midi.makeInputHandler(0xB2, 0x63, MPD218.handleNRPNMSB);
         midi.makeInputHandler(0xB2, 0x62, MPD218.handleNRPNLSB);
         midi.makeInputHandler(0xB2, 0x60, MPD218.handleNRPNIncrement);
         midi.makeInputHandler(0xB2, 0x61, MPD218.handleNRPNDecrement);
-        MPD218.log("Registered NRPN handlers for channel 3");
+        console.log("✅ Registered NRPN handlers for channel 3");
         
         // Channel 4 (0xB3)
         midi.makeInputHandler(0xB3, 0x63, MPD218.handleNRPNMSB);
         midi.makeInputHandler(0xB3, 0x62, MPD218.handleNRPNLSB);
         midi.makeInputHandler(0xB3, 0x60, MPD218.handleNRPNIncrement);
         midi.makeInputHandler(0xB3, 0x61, MPD218.handleNRPNDecrement);
+        console.log("✅ Registered NRPN handlers for channel 4");
+        
         // Channel 5 (0xB4) - Zoom control
         midi.makeInputHandler(0xB4, 0x63, MPD218.handleNRPNMSB);
         midi.makeInputHandler(0xB4, 0x62, MPD218.handleNRPNLSB);
         midi.makeInputHandler(0xB4, 0x60, MPD218.handleNRPNIncrement);
         midi.makeInputHandler(0xB4, 0x61, MPD218.handleNRPNDecrement);
+        console.log("✅ Registered NRPN handlers for channel 5 (zoom)");
         
         // Channel 6 (0xB5) - Zoom control
         midi.makeInputHandler(0xB5, 0x63, MPD218.handleNRPNMSB);
         midi.makeInputHandler(0xB5, 0x62, MPD218.handleNRPNLSB);
         midi.makeInputHandler(0xB5, 0x60, MPD218.handleNRPNIncrement);
         midi.makeInputHandler(0xB5, 0x61, MPD218.handleNRPNDecrement);
+        console.log("✅ Registered NRPN handlers for channel 6 (zoom)");
         
+        // Channel 9 (0xB8) - Jogwheel for Channel 1
+        midi.makeInputHandler(0xB8, 0x63, MPD218.handleNRPNMSB);
+        midi.makeInputHandler(0xB8, 0x62, MPD218.handleNRPNLSB);
+        midi.makeInputHandler(0xB8, 0x60, MPD218.handleNRPNIncrement);
+        midi.makeInputHandler(0xB8, 0x61, MPD218.handleNRPNDecrement);
+        console.log("✅ Registered NRPN handlers for channel 9 (jogwheel Channel 1)");
+        
+        // Channel 11 (0xBA) - Jogwheel for Channel 2
+        midi.makeInputHandler(0xBA, 0x63, MPD218.handleNRPNMSB);
+        midi.makeInputHandler(0xBA, 0x62, MPD218.handleNRPNLSB);
+        midi.makeInputHandler(0xBA, 0x60, MPD218.handleNRPNIncrement);
+        midi.makeInputHandler(0xBA, 0x61, MPD218.handleNRPNDecrement);
+        console.log("✅ Registered NRPN handlers for channel 11 (jogwheel Channel 2)");
+        
+        // Channel 12 (0xBB) - Jogwheel for Channel 3
+        midi.makeInputHandler(0xBB, 0x63, MPD218.handleNRPNMSB);
+        midi.makeInputHandler(0xBB, 0x62, MPD218.handleNRPNLSB);
+        midi.makeInputHandler(0xBB, 0x60, MPD218.handleNRPNIncrement);
+        midi.makeInputHandler(0xBB, 0x61, MPD218.handleNRPNDecrement);
+        console.log("✅ Registered NRPN handlers for channel 12 (jogwheel Channel 3)");
+        
+        // Channel 13 (0xBC) - Jogwheel for Channel 4
+        midi.makeInputHandler(0xBC, 0x63, MPD218.handleNRPNMSB);
+        midi.makeInputHandler(0xBC, 0x62, MPD218.handleNRPNLSB);
+        midi.makeInputHandler(0xBC, 0x60, MPD218.handleNRPNIncrement);
+        midi.makeInputHandler(0xBC, 0x61, MPD218.handleNRPNDecrement);
+        console.log("✅ Registered NRPN handlers for channel 13 (jogwheel Channel 4)");
+        
+        console.log("✅ All NRPN handlers registered");
         MPD218.log("All NRPN handlers registered");
     } else {
         MPD218.log("NRPN handlers disabled");
+    }
+    
+    // Debug: Add catch-all MIDI handler for troubleshooting
+    if (MPD218.debugEnabled) {
+        MPD218.log("Debug mode enabled - extra logging active");
+        
+        // Note: Complex debug handlers removed to avoid interference
+        // Debug messages are now built into each handler function
     }
     
     MPD218.log("MIDI handler setup complete");
 };
 
 MPD218.init = function() {
+    // VERY LOUD messages to verify script loading
+    console.log("=".repeat(60));
+    console.log("🎛️  MPD218 CONTROLLER SCRIPT LOADING...");
+    console.log("🎛️  IF YOU SEE THIS, THE SCRIPT IS WORKING!");
+    console.log("=".repeat(60));
+    
+    // Test to verify script is loaded and working
+    console.log("🎛️  MPD218 INIT STARTING - SCRIPT IS LOADED!");
+    console.log("🎛️  If you see this message, the script is working");
+    
     MPD218.log("=== INITIALIZING AKAI MPD218 CONTROLLER ===");
     MPD218.log(`Debug enabled: ${MPD218.debugEnabled}`);
     MPD218.log(`NRPN enabled: ${MPD218.enableNRPN}`);
@@ -913,26 +1451,108 @@ MPD218.init = function() {
     // Connect control change callbacks
     MPD218.connectControls();
     
+    // Note: Jogwheel functionality uses the "jog" control which works without scratch engine
+    console.log("🎛️  Jogwheel controls ready for channels 9, 11, 12, 13");
+    
+    // Clean up any orphaned timers
+    MPD218.bpmLockTimers = {};
+    MPD218.keyLockTimers = {};
+    MPD218.slipModeTimers = {};
+    MPD218.quantizationTimers = {};
+    
     // Initialize LEDs
+    console.log("🔦 Turning off all LEDs...");
     MPD218.turnOffAllLEDs();
+    
+    console.log("🔦 Updating all LEDs to match current state...");
     MPD218.updateAllLEDs();
     
     // Force BPM lock LEDs off after a short delay to ensure controller is ready
+    console.log("🔦 Scheduling delayed BPM lock LED update...");
     engine.beginTimer(500, function() {
+        console.log("🔦 Delayed BPM lock LED update - forcing all OFF");
         // Explicitly turn off all BPM lock LEDs
         for (const buttonNote of Object.keys(MPD218.bpmLockMappings)) {
             MPD218.forceBPMLockLEDOff(buttonNote);
         }
         
         // Then update based on actual state
+        console.log("🔦 Now updating BPM lock LEDs based on actual bpmlock state");
         for (const [buttonNote, mapping] of Object.entries(MPD218.bpmLockMappings)) {
             const lockStatus = engine.getValue(mapping.deck, "bpmlock");
+            console.log(`   ${mapping.deck} bpmlock = ${lockStatus}`);
             if (lockStatus) {
-                midi.sendShortMsg(0x99, parseInt(buttonNote), 127);
+                midi.sendShortMsg(0x98, parseInt(buttonNote), 127);
             } else {
                 MPD218.forceBPMLockLEDOff(buttonNote);
             }
         }
+        
+        // Force Key lock LEDs off after a short delay to ensure controller is ready
+        console.log("🎵 Scheduling delayed Key lock LED update...");
+        engine.beginTimer(600, function() {
+            console.log("🎵 Delayed Key lock LED update - forcing all OFF");
+            // Explicitly turn off all Key lock LEDs
+            for (const buttonNote of Object.keys(MPD218.keyLockMappings)) {
+                MPD218.forceKeyLockLEDOff(buttonNote);
+            }
+            
+            // Then update based on actual state
+            console.log("🎵 Now updating Key lock LEDs based on actual keylock state");
+            for (const [buttonNote, mapping] of Object.entries(MPD218.keyLockMappings)) {
+                const lockStatus = engine.getValue(mapping.deck, "keylock");
+                console.log(`   ${mapping.deck} keylock = ${lockStatus}`);
+                if (lockStatus) {
+                    midi.sendShortMsg(0x98, parseInt(buttonNote), 127);
+                } else {
+                    MPD218.forceKeyLockLEDOff(buttonNote);
+                }
+            }
+            
+            // Force Slip mode LEDs off after a short delay to ensure controller is ready
+            console.log("🎛️ Scheduling delayed Slip mode LED update...");
+            engine.beginTimer(700, function() {
+                console.log("🎛️ Delayed Slip mode LED update - forcing all OFF");
+                // Explicitly turn off all Slip mode LEDs
+                for (const buttonNote of Object.keys(MPD218.slipModeMappings)) {
+                    MPD218.forceSlipModeLEDOff(buttonNote);
+                }
+                
+                // Then update based on actual state
+                console.log("🎛️ Now updating Slip mode LEDs based on actual slip_enabled state");
+                for (const [buttonNote, mapping] of Object.entries(MPD218.slipModeMappings)) {
+                    const modeStatus = engine.getValue(mapping.deck, "slip_enabled");
+                    console.log(`   ${mapping.deck} slip_enabled = ${modeStatus}`);
+                    if (modeStatus) {
+                        midi.sendShortMsg(0x98, parseInt(buttonNote), 127);
+                    } else {
+                        MPD218.forceSlipModeLEDOff(buttonNote);
+                    }
+                }
+                
+                // Force Quantization LEDs off after a short delay to ensure controller is ready
+                console.log("🎯 Scheduling delayed Quantization LED update...");
+                engine.beginTimer(800, function() {
+                    console.log("🎯 Delayed Quantization LED update - forcing all OFF");
+                    // Explicitly turn off all Quantization LEDs
+                    for (const buttonNote of Object.keys(MPD218.quantizationMappings)) {
+                        MPD218.forceQuantizationLEDOff(buttonNote);
+                    }
+                    
+                    // Then update based on actual state
+                    console.log("🎯 Now updating Quantization LEDs based on actual quantize state");
+                    for (const [buttonNote, mapping] of Object.entries(MPD218.quantizationMappings)) {
+                        const quantStatus = engine.getValue(mapping.deck, "quantize");
+                        console.log(`   ${mapping.deck} quantize = ${quantStatus}`);
+                        if (quantStatus) {
+                            midi.sendShortMsg(0x98, parseInt(buttonNote), 127);
+                        } else {
+                            MPD218.forceQuantizationLEDOff(buttonNote);
+                        }
+                    }
+                }, true); // true = one-shot timer
+            }, true); // true = one-shot timer
+        }, true); // true = one-shot timer
     }, true); // true = one-shot timer
     
     MPD218.state.initialized = true;
@@ -941,6 +1561,34 @@ MPD218.init = function() {
 
 MPD218.shutdown = function() {
     MPD218.log("=== SHUTTING DOWN AKAI MPD218 CONTROLLER ===");
+    
+    // Stop all BPM lock timers
+    for (const [deck, timerId] of Object.entries(MPD218.bpmLockTimers)) {
+        console.log(`🔥 Stopping timer ${timerId} for ${deck} during shutdown`);
+        engine.stopTimer(timerId);
+    }
+    MPD218.bpmLockTimers = {};
+    
+    // Stop all Key lock timers
+    for (const [deck, timerId] of Object.entries(MPD218.keyLockTimers)) {
+        console.log(`🎵 Stopping timer ${timerId} for ${deck} during shutdown`);
+        engine.stopTimer(timerId);
+    }
+    MPD218.keyLockTimers = {};
+    
+    // Stop all Slip mode timers
+    for (const [deck, timerId] of Object.entries(MPD218.slipModeTimers)) {
+        console.log(`🎛️ Stopping timer ${timerId} for ${deck} during shutdown`);
+        engine.stopTimer(timerId);
+    }
+    MPD218.slipModeTimers = {};
+    
+    // Stop all Quantization timers
+    for (const [deck, timerId] of Object.entries(MPD218.quantizationTimers)) {
+        console.log(`🎯 Stopping timer ${timerId} for ${deck} during shutdown`);
+        engine.stopTimer(timerId);
+    }
+    MPD218.quantizationTimers = {};
     
     // Turn off all LEDs
     MPD218.turnOffAllLEDs();
