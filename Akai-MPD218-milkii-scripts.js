@@ -90,8 +90,8 @@ MPD218.HARDWARE = {
     // limits and ranges
     LIMITS: {
         MAX_HOTCUES: 16,                // maximum hotcue number
-        MAX_ZOOM: 64.0,                 // maximum waveform zoom
-        MIN_ZOOM: 0.1,                  // minimum waveform zoom
+        MAX_ZOOM: 100.0,                 // maximum waveform zoom
+        MIN_ZOOM: 1.0,                  // minimum waveform zoom
         DECK_COUNT: 4,                  // number of decks
         MAX_BANKS: 3,                   // number of available banks
         MIDI_CHANNELS: 16,              // total MIDI channels (0-15)
@@ -210,7 +210,7 @@ MPD218.Config = {
     // ENCODER SETTINGS
     encoders: {
         // zoom encoder speeds (multipliers)
-        zoomFast: 0.5,                  // fast zoom encoder speed (coarse adjustment)
+        zoomFast: 1,                  // fast zoom encoder speed (coarse adjustment)
         zoomSlow: 0.1,                  // fine zoom encoder speed (precise adjustment)
         
         // beatgrid nudge sensitivity
@@ -1005,8 +1005,14 @@ MPD218.Controllers = {
             
             // apply direction reversal if configured
             const actualDirection = MPD218.Config.zoomFeedback.reverseDirection ? -direction : direction;
-            const delta = actualDirection * speed;
-            const newZoom = Math.max(MPD218.HARDWARE.LIMITS.MIN_ZOOM, Math.min(MPD218.HARDWARE.LIMITS.MAX_ZOOM, current + delta));
+            
+            // use multiplicative zoom for more natural feel across the range
+            const zoomFactor = 1 + (actualDirection * speed * 0.05);
+            let newZoom = current * zoomFactor;
+            
+            // clamp to configured range
+            newZoom = Math.max(MPD218.HARDWARE.LIMITS.MIN_ZOOM, Math.min(MPD218.HARDWARE.LIMITS.MAX_ZOOM, newZoom));
+            
             engine.setValue(deck, "waveform_zoom", newZoom);
             
             // show zoom level feedback on all pads (if enabled)
