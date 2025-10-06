@@ -64,6 +64,7 @@ MPD218.MIDI = {
 // MARK: HARDWARE CONSTANTS
 MPD218.HARDWARE = {
     // physical pad layout (device as manufactured, no rotation)
+    // hardware bank 1 (pad bank A)
     PAD_NOTES: {
         // top row (furthest from user)
         TOP_ROW: [0x30, 0x31, 0x32, 0x33],
@@ -73,6 +74,22 @@ MPD218.HARDWARE = {
         THIRD_ROW: [0x28, 0x29, 0x2A, 0x2B],
         // bottom row (closest to user)
         BOTTOM_ROW: [0x24, 0x25, 0x26, 0x27]
+    },
+    
+    // hardware bank 2 (pad bank B)
+    PAD_NOTES_BANK2: {
+        TOP_ROW: [0x40, 0x41, 0x42, 0x43],
+        SECOND_ROW: [0x3C, 0x3D, 0x3E, 0x3F],
+        THIRD_ROW: [0x38, 0x39, 0x3A, 0x3B],
+        BOTTOM_ROW: [0x34, 0x35, 0x36, 0x37]
+    },
+    
+    // hardware bank 3 (pad bank C)
+    PAD_NOTES_BANK3: {
+        TOP_ROW: [0x50, 0x51, 0x52, 0x53],
+        SECOND_ROW: [0x4C, 0x4D, 0x4E, 0x4F],
+        THIRD_ROW: [0x48, 0x49, 0x4A, 0x4B],
+        BOTTOM_ROW: [0x44, 0x45, 0x46, 0x47]
     },
     
     // timing constants
@@ -255,6 +272,20 @@ MPD218.LayoutGenerator = {
         MPD218.HARDWARE.PAD_NOTES.BOTTOM_ROW  // bottom row
     ],
     
+    PHYSICAL_GRID_BANK2: [
+        MPD218.HARDWARE.PAD_NOTES_BANK2.TOP_ROW,
+        MPD218.HARDWARE.PAD_NOTES_BANK2.SECOND_ROW,
+        MPD218.HARDWARE.PAD_NOTES_BANK2.THIRD_ROW,
+        MPD218.HARDWARE.PAD_NOTES_BANK2.BOTTOM_ROW
+    ],
+    
+    PHYSICAL_GRID_BANK3: [
+        MPD218.HARDWARE.PAD_NOTES_BANK3.TOP_ROW,
+        MPD218.HARDWARE.PAD_NOTES_BANK3.SECOND_ROW,
+        MPD218.HARDWARE.PAD_NOTES_BANK3.THIRD_ROW,
+        MPD218.HARDWARE.PAD_NOTES_BANK3.BOTTOM_ROW
+    ],
+    
     // rotate grid by specified degrees and direction
     rotateGrid: function(grid, degrees, direction = "clockwise") {
         let rotated = grid.map(row => [...row]);  // deep copy
@@ -420,29 +451,37 @@ MPD218.BankGenerator = {
         };
     },
     
-    // generate transport control bank (bank 2)
-    generateTransportBank: function(layout) {
+    // generate transport control bank (bank 2) using hardware bank 2 notes
+    generateTransportBank: function() {
+        const config = MPD218.Config.layout;
         const pads = {};
         
-        // first row: play all decks (ch10, notes 0x40, 0x3C, 0x38, 0x34)
-        const playAllNotes = [0x40, 0x3C, 0x38, 0x34];
-        playAllNotes.forEach(note => {
+        // apply same rotation to bank 2 physical grid
+        const rotatedGrid = MPD218.LayoutGenerator.rotateGrid(
+            MPD218.LayoutGenerator.PHYSICAL_GRID_BANK2,
+            config.rotation,
+            config.rotationDirection
+        );
+        
+        // top row (after rotation) = play all decks
+        const topRow = rotatedGrid[0];
+        topRow.forEach(note => {
             pads[note] = {
                 type: "play_all_decks"
             };
         });
         
-        // remaining pads: hotcues for channel 1
+        // remaining rows: hotcues for channel 1
         let hotcueNum = 1;
-        layout.NOTES.forEach(note => {
-            if (!pads[note]) {
-                pads[note] = {
+        for (let row = 1; row < rotatedGrid.length; row++) {
+            for (let col = 0; col < rotatedGrid[row].length; col++) {
+                pads[rotatedGrid[row][col]] = {
                     type: "hotcue",
                     deck: `[Channel1]`,
                     number: hotcueNum++
                 };
             }
-        });
+        }
         
         return {
             name: "Transport Controls",
@@ -454,7 +493,7 @@ MPD218.BankGenerator = {
     generateAllBanks: function(layout = MPD218.PadLayout) {
         return {
             1: this.generateFeatureBank(layout),
-            2: this.generateTransportBank(layout),
+            2: this.generateTransportBank(),
             3: this.generateHotcueBank(layout, 2)
         };
     }
@@ -571,10 +610,21 @@ MPD218.LEDManager = {
         }
     },
     
-    // turn all pad LEDs off
+    // turn all pad LEDs off (all hardware banks)
     allPadsOff: function() {
-        MPD218.PadLayout.NOTES.forEach(note => {
-            this.setPadLED(note, false);
+        // turn off all pads from all three hardware banks
+        const allBanks = [
+            MPD218.HARDWARE.PAD_NOTES,
+            MPD218.HARDWARE.PAD_NOTES_BANK2,
+            MPD218.HARDWARE.PAD_NOTES_BANK3
+        ];
+        
+        allBanks.forEach(bank => {
+            Object.values(bank).forEach(row => {
+                row.forEach(note => {
+                    this.setPadLED(note, false);
+                });
+            });
         });
     },
     
