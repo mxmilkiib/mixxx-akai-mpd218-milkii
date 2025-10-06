@@ -601,6 +601,15 @@ MPD218.LEDManager = {
             
             if (mapping.type === "hotcue") {
                 state = engine.getValue(mapping.deck, `hotcue_${mapping.number}_status`) > 0;
+            } else if (mapping.type === "play_all_decks") {
+                // check if all decks are playing
+                state = true;
+                for (let i = 1; i <= MPD218.HARDWARE.LIMITS.DECK_COUNT; i++) {
+                    if (!engine.getValue(`[Channel${i}]`, "play")) {
+                        state = false;
+                        break;
+                    }
+                }
             } else {
                 // feature toggle (bpmlock, keylock, etc.)
                 state = engine.getValue(mapping.deck, mapping.type) > 0;
@@ -968,6 +977,16 @@ MPD218.Controllers = {
             if (mapping.type === "hotcue") {
                 const state = engine.getValue(mapping.deck, `hotcue_${mapping.number}_status`) > 0;
                 MPD218.LEDManager.setPadLED(control, state);
+            } else if (mapping.type === "play_all_decks") {
+                // light up if all decks are playing
+                let allPlaying = true;
+                for (let i = 1; i <= MPD218.HARDWARE.LIMITS.DECK_COUNT; i++) {
+                    if (!engine.getValue(`[Channel${i}]`, "play")) {
+                        allPlaying = false;
+                        break;
+                    }
+                }
+                MPD218.LEDManager.setPadLED(control, allPlaying);
             } else {
                 const state = engine.getValue(mapping.deck, mapping.type) > 0;
                 MPD218.LEDManager.setPadLED(control, state);
