@@ -420,11 +420,41 @@ MPD218.BankGenerator = {
         };
     },
     
+    // generate transport control bank (bank 2)
+    generateTransportBank: function(layout) {
+        const pads = {};
+        
+        // first row: play all decks (ch10, notes 0x40, 0x3C, 0x38, 0x34)
+        const playAllNotes = [0x40, 0x3C, 0x38, 0x34];
+        playAllNotes.forEach(note => {
+            pads[note] = {
+                type: "play_all_decks"
+            };
+        });
+        
+        // remaining pads: hotcues for channel 1
+        let hotcueNum = 1;
+        layout.NOTES.forEach(note => {
+            if (!pads[note]) {
+                pads[note] = {
+                    type: "hotcue",
+                    deck: `[Channel1]`,
+                    number: hotcueNum++
+                };
+            }
+        });
+        
+        return {
+            name: "Transport Controls",
+            pads: pads
+        };
+    },
+    
     // generate all bank mappings
     generateAllBanks: function(layout = MPD218.PadLayout) {
         return {
             1: this.generateFeatureBank(layout),
-            2: this.generateHotcueBank(layout, 1),
+            2: this.generateTransportBank(layout),
             3: this.generateHotcueBank(layout, 2)
         };
     }
@@ -915,6 +945,13 @@ MPD218.Controllers = {
         switch (mapping.type) {
             case "hotcue":
                 engine.setValue(mapping.deck, `hotcue_${mapping.number}_activate`, 1);
+                break;
+                
+            case "play_all_decks":
+                // start playback on all 4 decks simultaneously
+                for (let i = 1; i <= MPD218.HARDWARE.LIMITS.DECK_COUNT; i++) {
+                    engine.setValue(`[Channel${i}]`, "play", 1);
+                }
                 break;
                 
             case "bpmlock":
